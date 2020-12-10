@@ -1,0 +1,461 @@
+---
+title: "Rough"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r xmas, warning=FALSE, message=FALSE}
+library(tidymodels) 
+library(tidyverse)
+# for the recipes package, along with the rest of tidymodels
+# Helper packages
+library(skimr)   
+#numcores <- parallel::detectCores()
+
+set.seed(123)
+
+xmas_data <- readr::read_csv("hackathon_training_data.csv")
+# xmas_data_imp <- readr::read_csv("training_data_kane_imputed.csv") 
+# 
+# xmas_data_imp <- bind_cols(xmas_data_imp, xmas_data[, !colnames(xmas_data) %in% colnames(xmas_data_imp)]) %>%
+#   select(-Response_binary, -X1) %>%
+#   mutate(across(where(is.logical), ~replace_na(.x, as.logical(round(mean(.x, na.rm = TRUE))))))
+
+# xmas_data_scaled <-
+#   xmas_data %>%
+#   select(-Response_binary) %>%
+#   #mutate(across(where(is.numeric), ~replace_na(.x, min(.x)))) %>%
+#   #mutate(across(where(is.logical), ~replace_na(.x, FALSE))) %>%
+#   mutate_if(is.numeric, scale) %>%
+#   mutate_if(is.character, as.factor)
+ 
+# skim(xmas_data_scaled)
+  
+xmas_data_scaled_simplified <-
+  xmas_data %>%
+  select(-Response_binary) %>%
+  mutate(across(where(is.numeric), ~replace_na(.x, min(.x, na.rm = TRUE)))) %>%
+  mutate(across(where(is.logical), ~replace_na(.x, as.logical(round(mean(.x, na.rm = TRUE)))))) %>%
+  mutate_if(is.numeric, scale) %>%
+  mutate_if(is.character, as.factor)  
+
+  rm(xmas_data)
+  
+
+skim(xmas_data_scaled_simplified)
+
+library(corrr)
+# importnat
+theme_set(theme_classic())
+# xmas_data_scaled_simplified  %>% 
+#   mutate(response = as.numeric(response)) %>%
+#   dplyr::select_if(is.numeric) %>%
+#   correlate() %>%
+#   focus(response) %>%
+#   arrange(response) %>%
+#   mutate(use_these = abs(response) > 0.06) %>%
+#   ggplot(aes(x = reorder(term, response), response, fill = use_these)) + geom_bar(stat = "identity") +
+#   theme(axis.text.x=element_text(angle=90,hjust=1)) +
+#   geom_hline(yintercept = c(-0.06, 0.06))
+
+# unimportant
+numericpreds<- xmas_data_scaled_simplified  %>% 
+  mutate(response = as.numeric(response)) %>%
+  dplyr::select_if(is.numeric) %>%
+  correlate() %>%
+  focus(response) %>%
+  arrange(abs(response)) %>%
+  filter(abs(response) > 0.05) %>%
+  pull(term)
+
+
+ # xmas_data_scaled_simplified  %>% 
+ #  mutate(response = as.numeric(response)-1, response = as.logical(response)) %>%
+ #  select_if(is.logical) %>%
+ #  mutate_all(as.integer) %>%
+ #  correlate() %>%
+ #  focus(response) %>%
+ #  arrange(desc(abs(response)))
+ 
+ 
+ logicalpreds<- xmas_data_scaled_simplified  %>% 
+  mutate(response = as.numeric(response)-1, response = as.logical(response)) %>%
+  select_if(is.logical) %>%
+  mutate_all(as.integer) %>%
+  correlate() %>%
+  focus(response) %>%
+  arrange(desc(abs(response))) %>%
+  filter(abs(response) > 0.02) %>%
+  pull(term)
+ 
+  # xmas_data_scaled_simplified  %>% 
+  # mutate(response = as.numeric(response)-1, response = as.logical(response)) %>%
+  # select_if(is.logical) %>%
+  # mutate_all(as.integer) %>%
+  # correlate() %>%
+  # focus(response) %>%
+  # arrange(desc(abs(response))) %>%
+  # mutate(use_these = abs(response) > 0.03) %>%
+  # ggplot(aes(x = reorder(term, response), response, fill = use_these)) + geom_bar(stat = "identity") +
+  # theme(axis.text.x=element_text(angle=90,hjust=1)) +
+  # geom_hline(yintercept = c(-0.03, 0.03))
+ 
+
+  
+xmas_data_selection_scaled_simplified <- xmas_data_scaled_simplified %>% 
+  select(response, case, histology, numericpreds, logicalpreds, Signature.21, Signature.4, T_inflam_GEP, PTEN, TIGIT) 
+# xmas_data_selection_scaled <- xmas_data_scaled %>% 
+  # select(response, case, histology, numericpreds, logicalpreds, Signature.21, Signature.4, T_inflam_GEP, PTEN, TIGIT) 
+
+
+
+ rm(xmas_data_scaled, xmas_data_scaled_simplified, numericpreds, logicalpreds)
+ 
+ skim(xmas_data_selection_scaled)
+ skim(xmas_data_selection_scaled_simplified)
+
+# data_split_s <- initial_split(xmas_data_selection_scaled , strata = histology, prop = 3/4)
+data_split_ss <- initial_split(xmas_data_selection_scaled_simplified, strata = histology, prop = 3/4)
+
+# data_split_imp <- initial_split(xmas_data_imp , strata = histology, prop = 3/4)
+
+
+# train_data_s <- training(data_split_s)
+# test_data_s  <- testing(data_split_s)
+train_data_ss <- training(data_split_ss)
+test_data_ss  <- testing(data_split_ss)
+# train_data_imp <- training(data_split_imp)
+# test_data_imp  <- testing(data_split_imp)
+
+
+
+# readr::write_tsv(train_data_s, "train_data_scaled.tsv")
+# readr::write_tsv(test_data_s, "test_data_scaled.tsv")
+# readr::write_tsv(train_data_ss, "train_data_scaled_simplified.tsv")
+# readr::write_tsv(test_data_ss, "test_data_scaled_simplified.tsv")
+
+
+
+
+# NB check that the test data doesn't lose a whole tumour type or grade or something
+train_data_ss %>% 
+  distinct(histology) %>% 
+  anti_join(test_data_ss)
+
+# 5 fold CV splits Data is too bif of r10 fols with tumour strata
+cv_splits <- vfold_cv(train_data_ss, v = 5, strata = "histology")
+
+###########
+xmas_data3 <- readr::read_csv("hackathon_final_test_data.csv")
+
+# new_test_data <-
+#   xmas_data2 %>%
+#   select(-Response_binary) %>%
+#   mutate(across(where(is.numeric), ~replace_na(.x, min(.x, na.rm = TRUE)))) %>%
+#   mutate(across(where(is.logical), ~replace_na(.x, as.logical(round(mean(.x, na.rm = TRUE)))))) %>%
+#   #mutate_if(is.numeric, scale) %>%
+#   mutate_if(is.character, as.factor) %>%
+#   select(colnames(train_data_ss %>% select(-response)))
+
+final_test_data <-
+  xmas_data3 %>%
+  mutate(across(where(is.numeric), ~replace_na(.x, min(.x, na.rm = TRUE)))) %>%
+  mutate(across(where(is.logical), ~replace_na(.x, as.logical(round(mean(.x, na.rm = TRUE)))))) %>%
+  mutate_if(is.numeric, scale) %>%
+  mutate_if(is.character, as.factor) %>%
+  select(colnames(train_data_ss %>% select(-response)))
+
+
+##############
+
+# recipe for data preprocessing
+preprocess <- 
+  recipe(response ~ ., data = train_data_ss) %>% 
+  update_role(case, new_role = "ID") %>% 
+  step_dummy(all_nominal(), -all_outcomes()) %>%
+  step_zv(all_predictors()) %>% 
+  themis::step_upsample(response, over_ratio = tune()) 
+#%>%  step_knnimpute(all_predictors(), neighbors = 10)
+  
+cls_metrics <- metric_set(roc_auc, j_index, f_meas)
+library(stacks)
+ctrl_grid <- control_stack_grid()
+
+#######################################boosted trees
+boost_tune <- boost_tree(mtry = tune(), tree = tune(),
+                  learn_rate = tune(), tree_depth = tune()) %>%
+  set_engine("xgboost") %>%
+  set_mode("classification")
+boost_grid <- boost_tune %>%
+  parameters() %>%
+  finalize(select(train_data_ss, -response, -case)) %>%
+  grid_max_entropy(size = 10) %>%
+  mutate(over_ratio = seq(1.6, 2.5, 0.1))
+
+boost_wflow <- workflow() %>%
+  add_recipe(preprocess) %>%
+  add_model(boost_tune)
+boost_res <-
+  boost_wflow %>%
+  tune_grid(resamples = cv_splits, grid = boost_grid, metrics = cls_metrics, control = ctrl_grid)
+
+#best tuned fit fit from CV
+boost_best_ss <- 
+ boost_res %>% 
+  select_best(metric = "j_index")
+# fit against all train_data
+final_boost_wflow_ss <-
+  boost_wflow %>%
+  finalize_workflow(boost_best_ss)
+final_boost_imp <-
+  final_boost_wflow_ss %>%
+  fit(data = train_data_ss)
+
+#which variables are important?
+final_boost_ss %>%
+  pull_workflow_fit() %>%
+  vip::vip()
+
+# Now fit the final model on all test + train data
+final_boost_fit_ss <-
+  final_boost_ss %>%
+  last_fit(data_split_ss, metrics = cls_metrics)
+
+# FINALLY! How did we do?
+final_boost_fit_ss %>%
+  collect_metrics()
+
+final_boost_fit_ss %>%
+  collect_predictions() %>% 
+  roc_curve( truth = response, .pred_response) %>% 
+  autoplot()
+
+final_boost_fit_ss %>%
+  collect_predictions() %>% 
+  roc_auc( truth = response, .pred_response) 
+
+final_predictions_boost_ss<- final_boost_fit_ss %>%
+  collect_predictions() 
+
+  table(final_predictions_boost_ss$.pred_class, final_predictions_boost_ss$response)
+
+  final_predictions_boost_ss %>% F1()
+  
+# new_predictions_boost_ss<- 
+#   new_test_data %>%
+#    bind_cols(predict(final_boost_ss, new_data = .)) %>%
+#   select(ID = case,Prediction = .pred_class) 
+
+final_predictions_boost_ss<- 
+  final_test_data %>%
+   bind_cols(predict(final_boost_ss, new_data = .)) %>%
+  select(ID = case,Prediction = .pred_class) 
+
+summary(final_predictions_boost_ss)
+
+summary(final_predictions_boost_ss)
+
+write_tsv(final_predictions_boost_ss, "B2.tsv")
+
+#### elastic_net
+logit_tune <- logistic_reg(penalty = tune(), mixture = tune()) %>%
+  set_engine("glmnet")
+# Hyperparameter grid
+logit_grid <- logit_tune %>%
+  parameters() %>%
+  grid_max_entropy(size = 10) %>%
+  mutate(over_ratio = seq(1.6, 2.5, 0.1))
+
+# Workflow bundling every step
+logit_wflow <- workflow() %>%
+  add_recipe(preprocess) %>%
+  add_model(logit_tune)
+logit_res <-
+   logit_wflow %>%
+   tune_grid(resamples = cv_splits, metrics = cls_metrics, control = ctrl_grid)
+  
+logit_best_ss <- 
+ logit_res %>% 
+  select_best(metric = "j_index")
+
+final_logit_wflow_ss <-
+  logit_wflow %>%
+  finalize_workflow(logit_best_ss)
+
+final_logit_ss <-
+  final_logit_wflow_ss %>%
+  fit(data = train_data_ss)
+
+#which variables are important?
+
+final_logit_ss %>%
+  pull_workflow_fit() %>%
+  vi() %>% filter(!grepl("case", Variable)) %>% arrange(desc(abs(Importance))) %>% print(n= 16)
+
+# Now fit the final model on all test + train data
+final_logit_fit_ss <-
+  final_logit_ss %>%
+  last_fit(data_split_ss, metrics = cls_metrics)
+
+# FINALLY! How did we do?
+final_logit_fit_ss %>%
+  collect_metrics()
+
+final_logit_fit_ss %>%
+  collect_predictions() %>% 
+  roc_curve( truth = response, .pred_response) %>% 
+  autoplot()
+
+final_logit_fit_ss %>%
+  collect_predictions() %>% 
+  roc_auc( truth = response, .pred_response) 
+
+final_predictions_logit_ss<- final_logit_fit_ss %>%
+  collect_predictions() 
+
+final_predictions_logit_ss  %>% F1()
+
+  table(final_predictions_logit_ss$.pred_class, final_predictions_logit_ss$response)
+  
+  final_predictions_logit_ss<- 
+  final_test_data %>%
+   bind_cols(predict(final_logit_ss, new_data = .)) %>%
+  select(ID = case, Prediction = .pred_class) 
+  summary( final_predictions_logit_ss)
+  ##########
+
+table(final_predictions_logit_ss$.pred_class, final_predictions_logit_ss$response)
+table(final_predictions_boost_ss$.pred_class, final_predictions_boost_ss$response)
+table(final_predictions_keras_ss$.pred_class, final_predictions_keras_ss$response) 
+  
+  
+model_preds <-  tibble(
+  keras = final_predictions_keras_ss$.pred_class,  
+         elastic = final_predictions_logit_ss$.pred_class, 
+         boost = final_predictions_boost_ss$.pred_class, 
+         response = final_predictions_boost_ss$response)
+  
+  model_vote <- model_preds %>% 
+    mutate_all(~as.numeric(.x)-1) %>% 
+    mutate(responsesum = (keras + elastic +boost)) %>%
+    mutate(onevote = responsesum == 1, twovote = responsesum ==2, threevote = responsesum ==3) %>% 
+    mutate_all(as.numeric) %>%
+    mutate_all(as.factor) 
+  
+ 
+
+stack_model <- stacks::stacks() %>%
+  add_candidates(logit_res) %>%
+  add_candidates(boost_res) %>%
+# add_candidates(keras_res) %>%
+  blend_predictions() %>%
+  fit_members() 
+
+final_predictions_stacks_ss<-
+test_data_ss %>%
+bind_cols(predict(stack_model, .)) %>%
+select(response, 47)
+
+final_logit_fit_ss <-
+  final_logit_ss %>%
+  last_fit(data_split_ss, metrics = cls_metrics)
+
+
+F1<- function(predictions.tbl){
+  precisionest <- predictions.tbl %>%
+    precision(truth = "response", estimate = ".pred_class") %>%
+   pull(.estimate)
+  recallest<- predictions.tbl %>%
+    recall(truth = "response", estimate = ".pred_class") %>%
+   pull(.estimate)
+  F1<- (2*precisionest * recallest)/(precisionest+recallest)
+  return(F1)
+}
+
+final_predictions_stacks_ss %>% F1()
+final_predictions_logit_ss %>% F1()
+final_predictions_boost_ss %>% F1()
+
+
+table(final_predictions_stacks_ss$response, final_predictions_stacks_ss$.pred_class)
+table(final_predictions_logit_ss$response, final_predictions_logit_ss$.pred_class)
+table(final_predictions_boost_ss$response, final_predictions_boost_ss$.pred_class)
+
+
+# final_predictions <-  tibble(
+#         keras = final_predictions_keras_ss$.pred_class,  
+#         stacks  = final_predictions_stacks_ss$.pred_class, 
+#         response = final_predictions_boost_ss$response) %>%
+#         mutate(anyresponse = if_else(keras == "response"| stacks == "response" , "response", "no_response")) %>%
+#         mutate(bothresponse = if_else(keras == "response" & stacks == "response" , "response", "no_response")) %>%
+#         mutate_all(as.factor)
+#   
+
+final_predictions %>% rename(.pred_class = anyresponse) %>% F1()
+final_predictions %>% rename(.pred_class = bothresponse) %>% F1()
+
+
+table(final_predictions$response, final_predictions$anyresponse)
+#table(final_predictions$response, final_predictions$bothresponse)
+
+# NEW DATA WILL GO HERE ############
+
+xmas_data2 <- readr::read_csv("hackathon_interim_test_data.csv")
+
+new_test_data <-
+  xmas_data2 %>%
+  #select(-Response_binary) %>%
+ # mutate(across(where(is.numeric), ~replace_na(.x, min(.x, na.rm = TRUE)))) %>%
+ # mutate(across(where(is.logical), ~replace_na(.x, as.logical(round(mean(.x, na.rm = TRUE)))))) %>%
+  mutate_if(is.numeric, scale) %>%
+  mutate_if(is.character, as.factor) %>%
+  select(colnames(train_data_ss %>% select(-response)))
+
+new_predictions_stacks_ss<- 
+  new_test_data %>%
+   bind_cols(predict(stack_model, new_data = .)) %>%
+  select(ID = case,Prediction = .pred_class) 
+
+final_predictions_stacks_ss<- 
+  final_test_data %>%
+   bind_cols(predict(stack_model, new_data = .)) %>%
+  select(ID = case,Prediction = .pred_class) 
+
+
+ final_predictions_logit_ss<- 
+  final_test_data %>% mutate(case = as.character(case)) %>%
+   bind_cols(predict(final_logit_ss, new_data = .)) %>%
+  select(ID = case, Prediction = .pred_class) 
+ 
+ final_predictions_boost_ss<- 
+  final_test_data  %>%
+   bind_cols(predict(final_boost_ss, new_data = .)) %>%
+  select(ID = case, Prediction = .pred_class) 
+ 
+ summary(final_predictions_logit_ss)
+ summary(final_predictions_boost_ss)
+
+  final_boost_ss %>%
+  pull_workflow_fit() %>%
+  vip::vi() %>%
+  arrange(desc(abs(Importance)))
+  
+ final_boost_ss %>%
+  pull_workflow_fit() %>%
+  vip::vip()
+ 
+ final_logit_ss %>%
+  pull_workflow_fit() %>%
+  vip::vi() %>% filter(!grepl("case", Variable)) %>% arrange(desc(abs(Importance))) %>% print(n= 16)
+   
+ 
+ 
+   
+```
+
+
